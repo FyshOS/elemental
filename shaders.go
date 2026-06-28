@@ -427,6 +427,158 @@ func newBeamShader() *canvas.Shader {
 	return s
 }
 
+// burstUniforms is the contract for the compound-match explosion.
+const burstUniforms = `
+uniform vec2 frame_size;
+uniform vec4 rect_coords;
+uniform float time;
+uniform float progress;   // 0..1 over the clear
+uniform float cr;         // element colour
+uniform float cg;
+uniform float cb;
+`
+
+// burstMain is the big explosion that fires where two runs cross (an L, T, X) or
+// at the heart of a long line: a white-hot core, an expanding shock ring and
+// radial sparks, all tinted for the element and reaching across its neighbours.
+const burstMain = `
+void main() {
+    float left = rect_coords[0];
+    float right = rect_coords[1];
+    float yb = frame_size.y - rect_coords[3];
+    float yt = frame_size.y - rect_coords[2];
+    vec2 sz = vec2(right - left, yt - yb);
+    vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
+    vec2 p = uv * 2.0 - 1.0;       // -1..1, centred on the special cell
+    float r = length(p);
+    float t = time;
+    float pr = clamp(progress, 0.0, 1.0);
+
+    // White-hot core, brightest at the start.
+    float core = exp(-r * 4.0) * (1.0 - pr);
+    core += exp(-r * r * 30.0) * (1.0 - pr) * 1.5;
+
+    // Expanding shock ring that races outward as the match resolves.
+    float ringR = pr;
+    float ring = exp(-pow((r - ringR) * 6.0, 2.0)) * (1.0 - pr);
+
+    // Radial sparks riding the ring.
+    float ang = atan(p.y, p.x);
+    float spokes = pow(0.5 + 0.5 * sin(ang * 12.0 + t * 3.0), 6.0);
+    float spark = spokes * exp(-pow((r - ringR) * 4.0, 2.0)) * (1.0 - pr);
+
+    float e = core + ring * 0.9 + spark * 0.6;
+    e *= smoothstep(1.0, 0.65, r);  // fade to nothing before the square edge
+
+    vec3 tint = vec3(cr, cg, cb);
+    vec3 col = tint * e + vec3(1.0) * core * 0.6;
+    gl_FragColor = vec4(col, clamp(e, 0.0, 1.0));
+}
+`
+
+// newBurstShader builds the shared explosion shader; one program, per-instance
+// colour and progress.
+func newBurstShader() *canvas.Shader {
+	desktop := glHeaderDesktop + burstUniforms + glslHelpers + burstMain
+	es := glHeaderES + burstUniforms + glslHelpers + burstMain
+	s := canvas.NewShader("elemental_burst", []byte(desktop), []byte(es))
+	s.Uniforms = map[string]float32{"time": 0, "progress": 0, "cr": 1, "cg": 1, "cb": 1}
+	s.Hide()
+	return s
+}
+
+// logoMain is a miniature energy cell for the title bar: a glowing hexagon whose
+// fill slowly cycles through the element hues, so the logo embodies all seven.
+const logoMain = `
+void main() {
+    float left = rect_coords[0];
+    float right = rect_coords[1];
+    float yb = frame_size.y - rect_coords[3];
+    float yt = frame_size.y - rect_coords[2];
+    vec2 sz = vec2(right - left, yt - yb);
+    vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
+    vec2 p = uv * 2.0 - 1.0;
+    float t = time;
+
+    float d = hexSDF(p, 0.78);
+    float aa = 2.5 / sz.y;
+    float inside = smoothstep(aa, -aa, d);
+
+    float h = fract(t * 0.08);                 // drift through the palette
+    vec3 col = hsv2rgb(vec3(h, 0.6, 1.0));
+    col *= 0.7 + 0.5 * fbm(p * 3.0 + t * 0.3); // inner energy churn
+
+    float rim = smoothstep(0.12, 0.0, abs(d));
+    col += rim * 0.6;
+
+    float halo = exp(-max(d, 0.0) * 7.0);
+    float a = max(inside, halo * 0.6);
+    gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
+}
+`
+
+// newLogoShader builds the animated title-bar hexagon logo.
+func newLogoShader() *canvas.Shader {
+	desktop := glHeaderDesktop + cellUniforms + glslHelpers + logoMain
+	es := glHeaderES + cellUniforms + glslHelpers + logoMain
+	s := canvas.NewShader("elemental_logo", []byte(desktop), []byte(es))
+	s.Uniforms = map[string]float32{"time": 0}
+	return s
+}
+
+// panelUniforms is the contract for the decorative header/footer bars.
+const panelUniforms = `
+uniform vec2 frame_size;
+uniform vec4 rect_coords;
+uniform float time;
+uniform float cr;       // accent tint
+uniform float cg;
+uniform float cb;
+`
+
+// panelMain renders a dark "console" bar: a faint hex weave, a slowly drifting
+// energy sheen and glowing accent rules along the top and bottom edges, so the
+// HUD feels cut from the same material as the board.
+const panelMain = `
+void main() {
+    float left = rect_coords[0];
+    float right = rect_coords[1];
+    float yb = frame_size.y - rect_coords[3];
+    float yt = frame_size.y - rect_coords[2];
+    vec2 sz = vec2(right - left, yt - yb);
+    vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
+    float t = time;
+    vec3 tint = vec3(cr, cg, cb);
+
+    // Dark panel with a gentle vertical sheen.
+    vec3 col = mix(vec3(0.03, 0.03, 0.07), vec3(0.07, 0.06, 0.14), uv.y);
+
+    // Faint hexagonal weave.
+    vec2 hp = vec2(uv.x * sz.x / sz.y, uv.y) * 7.0;
+    float hd = abs(hexSDF(fract(hp) - 0.5, 0.42));
+    col += smoothstep(0.07, 0.0, hd) * vec3(0.03, 0.05, 0.10);
+
+    // Drifting energy sheen.
+    float sheen = fbm(vec2(uv.x * 3.0 - t * 0.15, uv.y * 2.0 + t * 0.05));
+    col += sheen * 0.07 * tint;
+
+    // Glowing accent rules along the edges.
+    float edge = smoothstep(0.10, 0.0, uv.y) + smoothstep(0.90, 1.0, uv.y);
+    col += edge * 0.45 * tint;
+
+    gl_FragColor = vec4(col, 1.0);
+}
+`
+
+// newPanelShader builds a decorative HUD bar tinted with the given accent.
+func newPanelShader(r, g, b float32) *canvas.Shader {
+	desktop := glHeaderDesktop + panelUniforms + glslHelpers + panelMain
+	es := glHeaderES + panelUniforms + glslHelpers + panelMain
+	s := canvas.NewShader("elemental_panel", []byte(desktop), []byte(es))
+	s.Uniforms = map[string]float32{"time": 0, "cr": r, "cg": g, "cb": b}
+	return s
+}
+
 // newBackgroundShader builds the full-window reactive background.
 func newBackgroundShader() *canvas.Shader {
 	desktop := glHeaderDesktop + bgUniforms + glslHelpers + bgMain

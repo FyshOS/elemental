@@ -27,7 +27,8 @@ const (
 	fallDur   = 0.36
 	impactDur = 0.18 // how long the landing smash lingers
 
-	maxFlows = 16 // pooled match-beam shaders
+	maxFlows  = 16 // pooled match-beam shaders
+	maxBursts = 8  // pooled compound-match explosions
 )
 
 type cellPos struct{ r, c int }
@@ -54,6 +55,10 @@ type Game struct {
 	flows      [maxFlows]*canvas.Shader // pooled energy beams along matched runs
 	flowActive [maxFlows]bool
 	flowRuns   [maxFlows]runSpan
+
+	bursts      [maxBursts]*canvas.Shader // pooled compound-match explosions
+	burstActive [maxBursts]bool
+	burstSpecs  [maxBursts]burstSpec
 
 	// per-type compiled source, so changing a cell's element is a field swap
 	srcTable [numTypes]srcEntry
@@ -111,6 +116,9 @@ func NewGame(onScore func(int)) *Game {
 	g.bg = newBackgroundShader()
 	for i := range g.flows {
 		g.flows[i] = newBeamShader()
+	}
+	for i := range g.bursts {
+		g.bursts[i] = newBurstShader()
 	}
 	g.rippleClock = -100 // start with no active ripple
 
@@ -267,7 +275,9 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 		g.rippleClock = g.clock
 	}
 
-	g.setupFlows()
+	runs := g.board.findRuns()
+	g.setupFlows(runs)
+	g.setupBursts(g.board.findBursts(runs))
 
 	g.phase = phaseClear
 	g.phaseT = 0
@@ -275,8 +285,7 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 
 // setupFlows assigns a pooled beam shader to each matched run, tinted for that
 // run's element, so energy visibly flows between the cells as they meet.
-func (g *Game) setupFlows() {
-	runs := g.board.findRuns()
+func (g *Game) setupFlows(runs []runSpan) {
 	for i := range g.flows {
 		if i < len(runs) {
 			g.flowRuns[i] = runs[i]
@@ -304,6 +313,33 @@ func (g *Game) hideFlows() {
 	for i := range g.flows {
 		g.flowActive[i] = false
 		g.flows[i].Hide()
+	}
+}
+
+// setupBursts assigns a pooled explosion to each compound-match centre.
+func (g *Game) setupBursts(specs []burstSpec) {
+	for i := range g.bursts {
+		if i < len(specs) {
+			g.burstSpecs[i] = specs[i]
+			g.burstActive[i] = true
+			s := g.bursts[i]
+			glow := materialGlow[specs[i].typ]
+			s.Uniforms["cr"] = glow[0]
+			s.Uniforms["cg"] = glow[1]
+			s.Uniforms["cb"] = glow[2]
+			s.Show()
+		} else {
+			g.burstActive[i] = false
+			g.bursts[i].Hide()
+		}
+	}
+}
+
+// hideBursts stops every active explosion at the end of a clear.
+func (g *Game) hideBursts() {
+	for i := range g.bursts {
+		g.burstActive[i] = false
+		g.bursts[i].Hide()
 	}
 }
 
@@ -336,6 +372,7 @@ func (g *Game) finishClear() {
 	}
 
 	g.hideFlows()
+	g.hideBursts()
 	g.phase = phaseFall
 	g.phaseT = 0
 }
@@ -499,6 +536,27 @@ func (g *Game) updateVisuals() {
 	}
 
 	g.updateFlows()
+	g.updateBursts()
+}
+
+// updateBursts positions and animates the active explosions over their centres.
+func (g *Game) updateBursts() {
+	progress := float32(g.phaseT / clearDur)
+	for i := range g.bursts {
+		if !g.burstActive[i] {
+			continue
+		}
+		b := g.burstSpecs[i]
+		side := float32(b.reach*2) * g.cell
+		cx := g.ox + (float32(b.c)+0.5)*g.cell
+		cy := g.oy + (float32(b.r)+0.5)*g.cell
+		s := g.bursts[i]
+		s.Resize(fyne.NewSize(side, side))
+		s.Move(fyne.NewPos(cx-side/2, cy-side/2))
+		s.Uniforms["time"] = float32(g.clock)
+		s.Uniforms["progress"] = progress
+		s.Refresh()
+	}
 }
 
 // updateFlows positions and animates the active match beams over their runs.
@@ -635,16 +693,19 @@ func absf(x float64) float64 {
 
 func (g *Game) CreateRenderer() fyne.WidgetRenderer {
 	g.dragFrom = cellPos{-1, -1}
-	objs := make([]fyne.CanvasObject, 0, boardSize*boardSize+maxFlows+1)
+	objs := make([]fyne.CanvasObject, 0, boardSize*boardSize+maxFlows+maxBursts+1)
 	objs = append(objs, g.bg)
 	for r := 0; r < boardSize; r++ {
 		for c := 0; c < boardSize; c++ {
 			objs = append(objs, g.shaders[r][c])
 		}
 	}
-	// Beams are drawn last so the energy flows over the top of the cells.
+	// Beams then bursts are drawn last so the energy and explosions sit on top.
 	for i := range g.flows {
 		objs = append(objs, g.flows[i])
+	}
+	for i := range g.bursts {
+		objs = append(objs, g.bursts[i])
 	}
 	r := &gameRenderer{g: g, objs: objs}
 
@@ -690,7 +751,7 @@ func (r *gameRenderer) Layout(size fyne.Size) {
 	}
 }
 
-func (r *gameRenderer) MinSize() fyne.Size      { return fyne.NewSize(360, 400) }
+func (r *gameRenderer) MinSize() fyne.Size      { return fyne.NewSize(300, 340) }
 func (r *gameRenderer) Refresh()                {}
 func (r *gameRenderer) Objects() []fyne.CanvasObject { return r.objs }
 func (r *gameRenderer) Destroy() {

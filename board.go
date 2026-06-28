@@ -165,6 +165,70 @@ func (g *grid) findRuns() []runSpan {
 	return runs
 }
 
+// burstSpec marks a cell that deserves a large explosion: where two runs cross
+// (an L, T or X) or at the centre of a long line. reach is the blast radius in
+// cells, so the explosion extends across the neighbouring matched cells.
+type burstSpec struct {
+	r, c  int
+	reach float64
+	typ   int
+}
+
+// findBursts locates the compound-match centres among the given runs.
+func (g *grid) findBursts(runs []runSpan) []burstSpec {
+	var hCov, vCov [boardSize][boardSize]bool
+	var typAt [boardSize][boardSize]int
+	for _, rn := range runs {
+		for k := 0; k < rn.length; k++ {
+			rr, cc := rn.r, rn.c
+			if rn.horiz {
+				cc += k
+				hCov[rr][cc] = true
+			} else {
+				rr += k
+				vCov[rr][cc] = true
+			}
+			typAt[rr][cc] = rn.typ
+		}
+	}
+
+	bursts := map[cellPos]burstSpec{}
+	add := func(r, c int, reach float64, typ int) {
+		key := cellPos{r, c}
+		if b, ok := bursts[key]; !ok || reach > b.reach {
+			bursts[key] = burstSpec{r: r, c: c, reach: reach, typ: typ}
+		}
+	}
+
+	// Intersections (L / T / X): a cell shared by a horizontal and vertical run.
+	for r := 0; r < boardSize; r++ {
+		for c := 0; c < boardSize; c++ {
+			if hCov[r][c] && vCov[r][c] {
+				add(r, c, 1.6, typAt[r][c])
+			}
+		}
+	}
+
+	// Long lines (5+): a bigger blast at the middle of the run.
+	for _, rn := range runs {
+		if rn.length >= 5 {
+			cr, cc := rn.r, rn.c
+			if rn.horiz {
+				cc += rn.length / 2
+			} else {
+				cr += rn.length / 2
+			}
+			add(cr, cc, float64(rn.length)*0.45, rn.typ)
+		}
+	}
+
+	out := make([]burstSpec, 0, len(bursts))
+	for _, b := range bursts {
+		out = append(out, b)
+	}
+	return out
+}
+
 // fallMove records that the cell now resting at (row, col) arrived from srcRow.
 // A srcRow above the board (negative) marks a freshly materialised cell.
 type fallMove struct {
