@@ -50,6 +50,7 @@ uniform float rippleTime;   // seconds since the last match (drives the shock wa
 uniform float rippleX;      // ripple centre, normalised 0..1
 uniform float rippleY;
 uniform float combo;        // current cascade depth, intensifies the reaction
+uniform float danger;       // 0..1 as the core nears depletion
 `
 
 // glslHelpers are procedural-texture building blocks shared by every material:
@@ -334,6 +335,11 @@ void main() {
     // Vignette to focus the board.
     col *= 1.0 - 0.5 * dot(p, p);
 
+    // As the core nears depletion the field reddens and a warning pulse creeps
+    // in from the edges.
+    col = mix(col, col * vec3(1.3, 0.35, 0.35), danger * 0.6);
+    col += danger * 0.12 * vec3(0.5, 0.0, 0.0) * dot(p, p) * (0.6 + 0.4 * sin(t * 8.0));
+
     gl_FragColor = vec4(col, 1.0);
 }
 `
@@ -585,7 +591,68 @@ func newBackgroundShader() *canvas.Shader {
 	es := glHeaderES + bgUniforms + glslHelpers + bgMain
 	s := canvas.NewShader("elemental_background", []byte(desktop), []byte(es))
 	s.Uniforms = map[string]float32{
-		"time": 0, "rippleTime": 100, "rippleX": 0.5, "rippleY": 0.5, "combo": 0,
+		"time": 0, "rippleTime": 100, "rippleX": 0.5, "rippleY": 0.5, "combo": 0, "danger": 0,
 	}
+	return s
+}
+
+// energyUniforms is the contract for the core-energy bar.
+const energyUniforms = `
+uniform vec2 frame_size;
+uniform vec4 rect_coords;
+uniform float time;
+uniform float level;     // 0..1 remaining core energy
+`
+
+// energyMain draws the core-energy gauge: a flowing fill that runs teal when
+// healthy, ambers as it falls and pulses red near empty, with a bright leading
+// edge. It is the heartbeat of the jeopardy - let it reach zero and the core
+// goes dark.
+const energyMain = `
+void main() {
+    float left = rect_coords[0];
+    float right = rect_coords[1];
+    float yb = frame_size.y - rect_coords[3];
+    float yt = frame_size.y - rect_coords[2];
+    vec2 sz = vec2(right - left, yt - yb);
+    vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
+    float t = time;
+    float lv = clamp(level, 0.0, 1.0);
+
+    float fill = step(uv.x, lv);   // 1 in the charged portion
+
+    // Colour ramps red -> amber -> teal with the charge level.
+    vec3 lo = vec3(1.0, 0.20, 0.15);
+    vec3 mid = vec3(1.0, 0.80, 0.20);
+    vec3 hi = vec3(0.30, 1.00, 0.80);
+    vec3 cLoMid = mix(lo, mid, clamp(lv * 2.0, 0.0, 1.0));
+    vec3 cMidHi = mix(mid, hi, clamp((lv - 0.5) * 2.0, 0.0, 1.0));
+    vec3 c = mix(cLoMid, cMidHi, step(0.5, lv));
+
+    // Energy flowing along the fill.
+    float flow = 0.5 + 0.5 * sin(uv.x * 30.0 - t * 6.0);
+    vec3 col = c * (0.6 + 0.4 * flow);
+
+    // Warning pulse when the core is low.
+    float low = smoothstep(0.28, 0.0, lv);
+    col += low * lo * (0.4 + 0.6 * sin(t * 10.0));
+
+    // Bright leading edge at the charge front.
+    col += smoothstep(0.02, 0.0, abs(uv.x - lv)) * 1.0;
+
+    // Dark track behind the empty portion.
+    vec3 track = vec3(0.05, 0.05, 0.09);
+    col = mix(track, col, fill);
+
+    gl_FragColor = vec4(col, 1.0);
+}
+`
+
+// newEnergyShader builds the core-energy gauge shader.
+func newEnergyShader() *canvas.Shader {
+	desktop := glHeaderDesktop + energyUniforms + glslHelpers + energyMain
+	es := glHeaderES + energyUniforms + glslHelpers + energyMain
+	s := canvas.NewShader("elemental_energy", []byte(desktop), []byte(es))
+	s.Uniforms = map[string]float32{"time": 0, "level": 1}
 	return s
 }

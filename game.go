@@ -29,6 +29,17 @@ const (
 
 	maxFlows  = 16 // pooled match-beam shaders
 	maxBursts = 8  // pooled compound-match explosions
+
+	// Core-energy jeopardy. The core constantly drains and matches recharge it;
+	// the drain accelerates with each level, so the player must match faster.
+	energyStart   = 1.0   // starting charge, 0..1 (full)
+	energyMax     = 1.0   // full charge
+	baseDrain     = 0.030 // charge lost per second at level 0 (~33s idle when full)
+	drainPerLevel = 0.006 // extra drain per second per level
+	gainPerCell   = 0.020 // charge gained per cleared cell
+	comboGain     = 0.6   // extra charge fraction per cascade depth
+	burstBonus    = 0.06  // extra charge per compound-match explosion
+	levelScore    = 800   // points between difficulty levels
 )
 
 type cellPos struct{ r, c int }
@@ -79,7 +90,15 @@ type Game struct {
 
 	score int
 	combo int
-	onScore func(int)
+	level int
+
+	energy    float64 // 0..1 core charge; reaches 0 -> game over
+	over      bool
+	energyBar *canvas.Shader
+
+	onScore    func(int)
+	onLevel    func(int)
+	onGameOver func(int)
 
 	// ripple state for the background reaction
 	rippleClock float64
@@ -120,6 +139,8 @@ func NewGame(onScore func(int)) *Game {
 	for i := range g.bursts {
 		g.bursts[i] = newBurstShader()
 	}
+	g.energyBar = newEnergyShader()
+	g.energy = energyStart
 	g.rippleClock = -100 // start with no active ripple
 
 	for r := 0; r < boardSize; r++ {
@@ -240,6 +261,12 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 	if g.onScore != nil {
 		g.onScore(g.score)
 	}
+	if lvl := g.score / levelScore; lvl != g.level {
+		g.level = lvl
+		if g.onLevel != nil {
+			g.onLevel(lvl)
+		}
+	}
 
 	// Centre of mass of the match, for the dissolve travel and the ripple.
 	var sr, sc, cnt float64
@@ -276,12 +303,25 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 	}
 
 	runs := g.board.findRuns()
+	bursts := g.board.findBursts(runs)
 	g.setupFlows(runs)
-	g.setupBursts(g.board.findBursts(runs))
+	g.setupBursts(bursts)
+
+	// Recharge the core: more cells, deeper cascades and compound matches all
+	// feed it harder.
+	gain := float64(n) * gainPerCell * (1.0 + comboGain*float64(g.combo))
+	gain += float64(len(bursts)) * burstBonus
+	g.energy += gain
+	if g.energy > energyMax {
+		g.energy = energyMax
+	}
 
 	g.phase = phaseClear
 	g.phaseT = 0
 }
+
+// EnergyBar returns the core-energy gauge shader for placement in the HUD.
+func (g *Game) EnergyBar() *canvas.Shader { return g.energyBar }
 
 // setupFlows assigns a pooled beam shader to each matched run, tinted for that
 // run's element, so energy visibly flows between the cells as they meet.
@@ -397,9 +437,66 @@ func (g *Game) finishFall() {
 		return
 	}
 	if !g.board.hasMoves() {
+		// reshuffle restarts the fall animation to materialise the new board, so
+		// let that phase play out instead of forcing straight to idle (which
+		// would leave every cell stuck invisible at appear=0).
 		g.reshuffle()
+		return
 	}
 	g.enterIdle()
+}
+
+// triggerGameOver freezes play and notifies the host once the core is dark.
+func (g *Game) triggerGameOver() {
+	if g.over {
+		return
+	}
+	g.over = true
+	g.sel = cellPos{-1, -1}
+	g.hideFlows()
+	g.hideBursts()
+	if g.onGameOver != nil {
+		g.onGameOver(g.score)
+	}
+}
+
+// Restart resets the board and core for a fresh run.
+func (g *Game) Restart() {
+	for {
+		g.board = newGrid()
+		if g.board.hasMoves() {
+			break
+		}
+	}
+	for r := 0; r < boardSize; r++ {
+		for c := 0; c < boardSize; c++ {
+			g.setType(r, c, g.board[r][c])
+			g.appearV[r][c] = 1
+			g.matchV[r][c] = 0
+			g.impactV[r][c] = 0
+			g.off0X[r][c], g.off0Y[r][c] = 0, 0
+			g.fresh[r][c] = false
+			g.fell[r][c] = false
+			g.matched[r][c] = false
+		}
+	}
+	g.hideFlows()
+	g.hideBursts()
+	g.energy = energyStart
+	g.score = 0
+	g.combo = 0
+	g.level = 0
+	g.over = false
+	g.sel = cellPos{-1, -1}
+	g.phase = phaseIdle
+	g.phaseT = 0
+	g.last = time.Now()
+	if g.onScore != nil {
+		g.onScore(0)
+	}
+	if g.onLevel != nil {
+		g.onLevel(0)
+	}
 }
 
 // reshuffle rebuilds a board that has at least one legal move.
@@ -434,6 +531,21 @@ func (g *Game) tick() {
 	}
 	g.last = now
 	g.clock += dt
+
+	// The core drains constantly while playing; depletion ends the run.
+	if !g.over {
+		drain := baseDrain + drainPerLevel*float64(g.level)
+		g.energy -= drain * dt
+		if g.energy <= 0 {
+			g.energy = 0
+			g.triggerGameOver()
+		}
+	}
+	if g.over {
+		g.updateVisuals() // keep the shaders breathing, but freeze the game
+		return
+	}
+
 	g.phaseT += dt
 
 	switch g.phase {
@@ -481,7 +593,16 @@ func (g *Game) updateVisuals() {
 	g.bg.Uniforms["rippleX"] = g.rippleX
 	g.bg.Uniforms["rippleY"] = g.rippleY
 	g.bg.Uniforms["combo"] = float32(g.combo)
+	danger := smooth((0.30 - g.energy) / 0.30) // ramps up as the core nears empty
+	g.bg.Uniforms["danger"] = float32(danger)
 	g.bg.Refresh()
+
+	// Core-energy gauge.
+	if g.energyBar != nil {
+		g.energyBar.Uniforms["time"] = float32(g.clock)
+		g.energyBar.Uniforms["level"] = float32(g.energy)
+		g.energyBar.Refresh()
+	}
 
 	swapE := smooth(g.phaseT / swapDur)
 	fallMoveE := easeIn(g.phaseT / fallDur)   // gravity accelerates into the smash
@@ -598,7 +719,7 @@ func clamp01(x float64) float64 {
 
 // Tapped selects a cell, then swaps with an adjacent second tap.
 func (g *Game) Tapped(ev *fyne.PointEvent) {
-	if g.phase != phaseIdle {
+	if g.over || g.phase != phaseIdle {
 		return
 	}
 	cp, ok := g.cellAt(ev.Position)
@@ -625,7 +746,7 @@ func (g *Game) Tapped(ev *fyne.PointEvent) {
 
 // Dragged accumulates a swipe so a drag from one cell toward a neighbour swaps.
 func (g *Game) Dragged(ev *fyne.DragEvent) {
-	if g.phase != phaseIdle {
+	if g.over || g.phase != phaseIdle {
 		return
 	}
 	if g.dragFrom.r < 0 {
