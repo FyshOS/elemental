@@ -406,6 +406,9 @@ func (g *Game) tick() {
 		}
 	case phaseSwapBack:
 		if g.phaseT >= swapDur {
+			a, b := g.swapA, g.swapB
+			g.off0X[a.r][a.c], g.off0Y[a.r][a.c] = 0, 0
+			g.off0X[b.r][b.c], g.off0Y[b.r][b.c] = 0, 0
 			g.enterIdle()
 		}
 	case phaseClear:
