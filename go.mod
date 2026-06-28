@@ -2,13 +2,17 @@ module github.com/FyshOS/elemental
 
 go 1.26.2
 
-require fyne.io/fyne/v2 v2.7.5-0.20260627204512-898abc2d3d41
+require (
+	fyne.io/fyne/v2 v2.7.5-0.20260627204512-898abc2d3d41
+	github.com/ebitengine/oto/v3 v3.4.0
+)
 
 require (
 	fyne.io/systray v1.12.2 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/anthonynsimon/bild v0.13.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.1-0.20260315212741-029c47fd27e8 // indirect
@@ -37,7 +41,7 @@ require (
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

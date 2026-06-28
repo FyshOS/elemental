@@ -14,11 +14,15 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 //go:embed Icon.png
 var iconBytes []byte
+
+// prefKeyMute remembers whether the player has muted the sound.
+const prefKeyMute = "sound.mute"
 
 func main() {
 	// numTypes is hard-coded in board.go; keep it honest against the material set.
@@ -48,6 +52,27 @@ func main() {
 		})
 	})
 
+	// Procedural sound for key events, with the muted choice restored from prefs.
+	sound := newSoundPlayer()
+	sound.SetMuted(a.Preferences().Bool(prefKeyMute))
+	game.onSound = sound.Play
+
+	// A mute toggle whose icon confirms the current state.
+	var muteBtn *widget.Button
+	muteIcon := func() fyne.Resource {
+		if sound.Muted() {
+			return theme.VolumeMuteIcon()
+		}
+		return theme.VolumeUpIcon()
+	}
+	muteBtn = widget.NewButtonWithIcon("", muteIcon(), func() {
+		muted := !sound.Muted()
+		sound.SetMuted(muted)
+		a.Preferences().SetBool(prefKeyMute, muted)
+		muteBtn.SetIcon(muteIcon())
+	})
+	muteBtn.Importance = widget.LowImportance
+
 	scoreLabel := canvas.NewText("SCORE", color.NRGBA{R: 130, G: 140, B: 180, A: 255})
 	scoreLabel.TextSize = 14
 	scoreLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
@@ -66,7 +91,8 @@ func main() {
 	energyBar := container.NewStack(game.EnergyBar(), fixedSpacer(0, 16))
 	energyRow := container.NewBorder(nil, nil, levelText, nil, energyBar)
 
-	topRow := container.NewBorder(nil, nil, titleRow, scoreBox)
+	rightSide := container.NewHBox(scoreBox, layoutSpacer(8), muteBtn)
+	topRow := container.NewBorder(nil, nil, titleRow, rightSide)
 
 	// Header: logo/title/score above the core gauge, over a violet console bar.
 	headerPanel := newPanelShader(0.45, 0.30, 0.85)

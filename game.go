@@ -99,6 +99,7 @@ type Game struct {
 	onScore    func(int)
 	onLevel    func(int)
 	onGameOver func(int)
+	onSound    func(Sound)
 
 	// ripple state for the background reaction
 	rippleClock float64
@@ -243,6 +244,7 @@ func (g *Game) finishSwap() {
 		g.setType(a.r, a.c, g.board[a.r][a.c])
 		g.setType(b.r, b.c, g.board[b.r][b.c])
 		g.setSwapOffsets(a, b)
+		g.play(SoundInvalid)
 		g.phase = phaseSwapBack
 		g.phaseT = 0
 		return
@@ -266,6 +268,7 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 		if g.onLevel != nil {
 			g.onLevel(lvl)
 		}
+		g.play(SoundLevelUp)
 	}
 
 	// Centre of mass of the match, for the dissolve travel and the ripple.
@@ -316,12 +319,25 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 		g.energy = energyMax
 	}
 
+	if len(bursts) > 0 {
+		g.play(SoundBurst)
+	} else {
+		g.play(SoundMatch)
+	}
+
 	g.phase = phaseClear
 	g.phaseT = 0
 }
 
 // EnergyBar returns the core-energy gauge shader for placement in the HUD.
 func (g *Game) EnergyBar() *canvas.Shader { return g.energyBar }
+
+// play emits a sound event if a sink is wired up.
+func (g *Game) play(s Sound) {
+	if g.onSound != nil {
+		g.onSound(s)
+	}
+}
 
 // setupFlows assigns a pooled beam shader to each matched run, tinted for that
 // run's element, so energy visibly flows between the cells as they meet.
@@ -455,6 +471,7 @@ func (g *Game) triggerGameOver() {
 	g.sel = cellPos{-1, -1}
 	g.hideFlows()
 	g.hideBursts()
+	g.play(SoundGameOver)
 	if g.onGameOver != nil {
 		g.onGameOver(g.score)
 	}
@@ -729,10 +746,12 @@ func (g *Game) Tapped(ev *fyne.PointEvent) {
 	}
 	if g.sel.r < 0 {
 		g.sel = cp
+		g.play(SoundTap)
 		return
 	}
 	if g.sel == cp {
 		g.sel = cellPos{-1, -1}
+		g.play(SoundTap)
 		return
 	}
 	if adjacent(g.sel.r, g.sel.c, cp.r, cp.c) {
@@ -742,6 +761,7 @@ func (g *Game) Tapped(ev *fyne.PointEvent) {
 		return
 	}
 	g.sel = cp
+	g.play(SoundTap)
 }
 
 // Dragged accumulates a swipe so a drag from one cell toward a neighbour swaps.
