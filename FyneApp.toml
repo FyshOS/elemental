@@ -1,0 +1,7 @@
+[Details]
+Name = "Elemental"
+Icon = "Icon.png"
+ID = "com.fyshos.elemental"
+
+[Migrations]
+fyneDo=true
