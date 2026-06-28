@@ -770,7 +770,8 @@ func (g *Game) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	if g.dragFrom.r < 0 {
-		if cp, ok := g.cellAt(ev.Position); ok {
+		start := fyne.NewPos(ev.Position.X-ev.Dragged.DX, ev.Position.Y-ev.Dragged.DY)
+		if cp, ok := g.cellAt(start); ok {
 			g.dragFrom = cp
 		}
 	}

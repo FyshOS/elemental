@@ -1,7 +1,8 @@
 [Details]
-Name = "Elemental"
 Icon = "Icon.png"
+Name = "Elemental"
 ID = "com.fyshos.elemental"
+Build = 2
 
 [Migrations]
-fyneDo=true
+fyneDo = true
