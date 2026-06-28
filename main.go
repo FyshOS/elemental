@@ -9,6 +9,7 @@ import (
 	_ "embed"
 	"image/color"
 	"strconv"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -114,11 +115,15 @@ func main() {
 	content := container.NewBorder(header, footer, nil, nil, game)
 	w.SetContent(content)
 
-	// Difficulty level readout.
+	// Difficulty level readout, plus a brief screen flash on each new level so the
+	// step up in pace is unmissable (the game pauses itself behind it).
 	game.onLevel = func(l int) {
 		fyne.Do(func() {
 			levelText.Text = "LV " + strconv.Itoa(l)
 			levelText.Refresh()
+			if l > 0 {
+				showLevelFlash(w.Canvas(), l)
+			}
 		})
 	}
 
@@ -173,6 +178,57 @@ func newGameOverPopup(c fyne.Canvas, score int, onRestart func()) *widget.PopUp 
 		btn,
 	)
 	return widget.NewModalPopUp(container.NewPadded(box), c)
+}
+
+// showLevelFlash takes over the screen for a beat to announce a new level. It is
+// timed to the pause the game takes on level-up: the banner pops, holds over the
+// frozen board, then fades and dismisses just as play resumes.
+func showLevelFlash(c fyne.Canvas, level int) {
+	const headR, headG, headB = 150, 220, 255
+	const subR, subG, subB = 210, 195, 230
+
+	heading := canvas.NewText("LEVEL "+strconv.Itoa(level), color.NRGBA{headR, headG, headB, 255})
+	heading.TextSize = 52
+	heading.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	heading.Alignment = fyne.TextAlignCenter
+
+	sub := canvas.NewText("THE CORE DRAINS FASTER", color.NRGBA{subR, subG, subB, 255})
+	sub.TextSize = 13
+	sub.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	sub.Alignment = fyne.TextAlignCenter
+
+	panel := newPanelShader(0.30, 0.18, 0.70)
+	panelAnim := canvas.NewShaderAnimation(panel)
+	panelAnim.Start()
+
+	body := container.NewPadded(container.NewVBox(heading, fixedSpacer(0, 6), sub))
+	pop := widget.NewPopUp(container.NewStack(panel, body), c)
+	pop.Show()
+
+	// Fade the banner out toward the end of the pause...
+	time.AfterFunc(700*time.Millisecond, func() {
+		fyne.Do(func() {
+			fade := &fyne.Animation{
+				Duration: 350 * time.Millisecond,
+				Curve:    fyne.AnimationEaseInOut,
+				Tick: func(f float32) {
+					a := uint8(255 * (1 - f))
+					heading.Color = color.NRGBA{headR, headG, headB, a}
+					sub.Color = color.NRGBA{subR, subG, subB, a}
+					heading.Refresh()
+					sub.Refresh()
+				},
+			}
+			fade.Start()
+		})
+	})
+	// ...then dismiss it once faded.
+	time.AfterFunc(1100*time.Millisecond, func() {
+		fyne.Do(func() {
+			panelAnim.Stop()
+			pop.Hide()
+		})
+	})
 }
 
 // layoutSpacer is a fixed-width transparent gap for inline spacing.

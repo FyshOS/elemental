@@ -40,6 +40,10 @@ const (
 	comboGain     = 0.6   // extra charge fraction per cascade depth
 	burstBonus    = 0.06  // extra charge per compound-match explosion
 	levelScore    = 800   // points between difficulty levels
+
+	// When a new level is entered the game freezes for a beat so the HUD can
+	// flash the announcement; everything (phases and the core drain) holds.
+	levelFlashDur = 1.1
 )
 
 type cellPos struct{ r, c int }
@@ -94,6 +98,7 @@ type Game struct {
 
 	energy    float64 // 0..1 core charge; reaches 0 -> game over
 	over      bool
+	paused    float64 // seconds of frozen play remaining (level flash)
 	energyBar *canvas.Shader
 
 	onScore    func(int)
@@ -269,6 +274,7 @@ func (g *Game) enterClear(mask [boardSize][boardSize]bool, n int) {
 			g.onLevel(lvl)
 		}
 		g.play(SoundLevelUp)
+		g.paused = levelFlashDur // freeze play while the new level is announced
 	}
 
 	// Centre of mass of the match, for the dissolve travel and the ripple.
@@ -504,6 +510,7 @@ func (g *Game) Restart() {
 	g.combo = 0
 	g.level = 0
 	g.over = false
+	g.paused = 0
 	g.sel = cellPos{-1, -1}
 	g.phase = phaseIdle
 	g.phaseT = 0
@@ -548,6 +555,14 @@ func (g *Game) tick() {
 	}
 	g.last = now
 	g.clock += dt
+
+	// A level-up freezes play for a beat: the board, phases and core drain all
+	// hold while the announcement flashes, but the background keeps breathing.
+	if g.paused > 0 && !g.over {
+		g.paused -= dt
+		g.updateVisuals()
+		return
+	}
 
 	// The core drains constantly while playing; depletion ends the run.
 	if !g.over {
