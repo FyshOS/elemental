@@ -28,12 +28,12 @@ precision mediump int;
 #endif
 `
 
-// cellUniforms is the uniform contract for a board cell. frame_size and
-// rect_coords are supplied automatically by Fyne; the rest are driven per tile
+// cellUniforms is the uniform contract for a board cell. frame and
+// bounds are supplied automatically by Fyne; the rest are driven per tile
 // each frame from the cell's Uniforms map.
 const cellUniforms = `
-uniform vec2 frame_size;    // output frame size in pixels (set by Fyne)
-uniform vec4 rect_coords;   // this tile's bounds x1,x2,y1,y2 in pixels (set by Fyne)
+uniform vec2 frame;         // output frame size in pixels (set by Fyne)
+uniform vec4 bounds;        // this tile's bounds x1,y1,x2,y2 in pixels (set by Fyne)
 uniform float time;         // global animation clock, seconds
 uniform float selected;     // 1 when this cell is picked up
 uniform float matchProgress;// 0..1 dissolve while clearing a match
@@ -44,7 +44,7 @@ uniform float impact;       // 0..1 landing smash, decays after a drop
 
 // bgUniforms is the uniform contract for the full-window background.
 const bgUniforms = `
-uniform vec2 frame_size;    // output frame size in pixels (set by Fyne)
+uniform vec2 frame;    // output frame size in pixels (set by Fyne)
 uniform float time;         // global animation clock, seconds
 uniform float rippleTime;   // seconds since the last match (drives the shock wave)
 uniform float rippleX;      // ripple centre, normalised 0..1
@@ -110,10 +110,10 @@ vec3 hsv2rgb(vec3 c) {
 const cellMain = `
 void main() {
     // Reconstruct this tile's local coordinates from the pixel rectangle.
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     vec2 p = uv * 2.0 - 1.0;            // -1..1, centred on the tile
@@ -309,7 +309,7 @@ vec3 element(vec2 uv, vec2 p, float t) {
 // shock wave that radiates from each match, intensified by combo depth.
 const bgMain = `
 void main() {
-    vec2 res = frame_size;
+    vec2 res = frame;
     vec2 uv = gl_FragCoord.xy / res;
     vec2 p = (gl_FragCoord.xy - 0.5 * res) / res.y;
     float t = time;
@@ -372,8 +372,8 @@ var materialGlow = [...][3]float32{
 
 // beamUniforms is the contract for the match beam.
 const beamUniforms = `
-uniform vec2 frame_size;
-uniform vec4 rect_coords;
+uniform vec2 frame;
+uniform vec4 bounds;
 uniform float time;
 uniform float progress;   // 0..1 over the clear
 uniform float horiz;      // 1 for a horizontal run, 0 for vertical
@@ -386,10 +386,10 @@ uniform float cb;
 // from both ends and burst where the cells meet, then the whole thing fades.
 const beamMain = `
 void main() {
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     float t = time;
@@ -435,8 +435,8 @@ func newBeamShader() *canvas.Shader {
 
 // burstUniforms is the contract for the compound-match explosion.
 const burstUniforms = `
-uniform vec2 frame_size;
-uniform vec4 rect_coords;
+uniform vec2 frame;
+uniform vec4 bounds;
 uniform float time;
 uniform float progress;   // 0..1 over the clear
 uniform float cr;         // element colour
@@ -449,10 +449,10 @@ uniform float cb;
 // radial sparks, all tinted for the element and reaching across its neighbours.
 const burstMain = `
 void main() {
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     vec2 p = uv * 2.0 - 1.0;       // -1..1, centred on the special cell
@@ -497,10 +497,10 @@ func newBurstShader() *canvas.Shader {
 // fill slowly cycles through the element hues, so the logo embodies all seven.
 const logoMain = `
 void main() {
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     vec2 p = uv * 2.0 - 1.0;
@@ -534,8 +534,8 @@ func newLogoShader() *canvas.Shader {
 
 // panelUniforms is the contract for the decorative header/footer bars.
 const panelUniforms = `
-uniform vec2 frame_size;
-uniform vec4 rect_coords;
+uniform vec2 frame;
+uniform vec4 bounds;
 uniform float time;
 uniform float cr;       // accent tint
 uniform float cg;
@@ -547,10 +547,10 @@ uniform float cb;
 // HUD feels cut from the same material as the board.
 const panelMain = `
 void main() {
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     float t = time;
@@ -598,8 +598,8 @@ func newBackgroundShader() *canvas.Shader {
 
 // energyUniforms is the contract for the core-energy bar.
 const energyUniforms = `
-uniform vec2 frame_size;
-uniform vec4 rect_coords;
+uniform vec2 frame;
+uniform vec4 bounds;
 uniform float time;
 uniform float level;     // 0..1 remaining core energy
 `
@@ -610,10 +610,10 @@ uniform float level;     // 0..1 remaining core energy
 // goes dark.
 const energyMain = `
 void main() {
-    float left = rect_coords[0];
-    float right = rect_coords[1];
-    float yb = frame_size.y - rect_coords[3];
-    float yt = frame_size.y - rect_coords[2];
+    float left = bounds[0];
+    float right = bounds[2];
+    float yb = frame.y - bounds[3];
+    float yt = frame.y - bounds[1];
     vec2 sz = vec2(right - left, yt - yb);
     vec2 uv = (gl_FragCoord.xy - vec2(left, yb)) / sz;
     float t = time;

@@ -1,5 +1,5 @@
-fyne.io/fyne/v2 v2.7.5-0.20260627204512-898abc2d3d41 h1:cLKNpbITUjaxNU8RFIVWzlUCRwO3s6PD8i1o4sUuM1Y=
-fyne.io/fyne/v2 v2.7.5-0.20260627204512-898abc2d3d41/go.mod h1:J1MHvPeMxAUF5zRWfGNP3rNRHAK6ZBJ/OiQl4BjzUtY=
+fyne.io/fyne/v2 v2.8.0-rc1 h1:/W1uCLSDChckRYNfCAJAew/eZm3beLMFF6PAcQObuwE=
+fyne.io/fyne/v2 v2.8.0-rc1/go.mod h1:J1MHvPeMxAUF5zRWfGNP3rNRHAK6ZBJ/OiQl4BjzUtY=
 fyne.io/systray v1.12.2 h1:Y8DZxgLHsVQt6rY9Zrkkg+j67S7vv/1F2viOWKPpVeA=
 fyne.io/systray v1.12.2/go.mod h1:RVwqP9nYMo7h5zViCBHri2FgjXF7H2cub7MAq4NSoLs=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=

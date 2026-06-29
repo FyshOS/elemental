@@ -1,9 +1,9 @@
 module github.com/FyshOS/elemental
 
-go 1.26.2
+go 1.24.0
 
 require (
-	fyne.io/fyne/v2 v2.7.5-0.20260627204512-898abc2d3d41
+	fyne.io/fyne/v2 v2.8.0-rc1
 	github.com/ebitengine/oto/v3 v3.4.0
 )
 
